@@ -26,6 +26,12 @@
   input:focus,textarea:focus{border-color:var(--purple)}
   label{display:block;font-size:13px;color:var(--muted);margin:12px 0 5px}
   .hide{display:none!important}
+  .star{background:none;border:0;padding:2px 4px;font-size:16px;color:var(--muted);line-height:1}
+  .star.on{color:var(--gold)}
+  .guestbar{margin:0 12px 10px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;font-size:13px;color:var(--muted);background:var(--panel2)}
+  .linkish{background:none;border:0;padding:0;color:var(--purple);font-weight:700}
+  .compose .chead .saved{margin-left:auto;margin-right:10px;font-size:12px;font-weight:400;color:var(--muted)}
+  .tag{font-size:11px;border:1px solid var(--line);border-radius:6px;padding:1px 5px;margin-left:6px;color:var(--muted)}
 
   /* ---------- header ---------- */
   header{flex:none;display:flex;align-items:center;gap:10px;padding:10px 16px;min-height:var(--hh);border-bottom:1px solid var(--line);background:var(--panel);position:relative;z-index:30;flex-wrap:wrap}
@@ -138,8 +144,12 @@
   <div class="logo">Deluxe<span>Mail</span> ✦</div>
   <div class="spacer"></div>
   <div class="dd sites">
-    <button id="ddBtn" aria-haspopup="true">Find other websites by Deluxelord ▾</button>
+    <button id="ddBtn" aria-haspopup="true">Deluxe websites ▾</button>
     <div class="menu" id="menu">
+      <a href="https://deluxe-drive.deluxelordd.workers.dev/main/" target="_blank" rel="noopener">Deluxe Main<small>Your Deluxe account</small></a>
+      <a href="https://deluxe-drive.deluxelordd.workers.dev" target="_blank" rel="noopener">Deluxe Drive<small>Keep and share your files</small></a>
+      <a href="https://deluxe-docs-iota.vercel.app" target="_blank" rel="noopener">Deluxe Docs<small>Open PDFs, Word, Excel and slides</small></a>
+      <a href="https://deluxe-translate-8m27.netlify.app" target="_blank" rel="noopener">Deluxe Translate<small>Text and photos, 100+ languages</small></a>
       <a href="https://youtube-guide-ai.netlify.app/" target="_blank" rel="noopener">YouTube Guider AI<small>Your AI guide for YouTube</small></a>
       <a href="https://deluxe-convert-cloud.deluxelordd.workers.dev" target="_blank" rel="noopener">Deluxe Convert<small>Convert your files easily</small></a>
     </div>
@@ -150,40 +160,23 @@
       <div class="who" id="meAddr"></div>
       <button class="mi" id="themeBtn">Switch light / dark</button>
       <button class="mi hide" id="gDisc">Disconnect Gmail</button>
-      <button class="mi" id="logout">Log out</button>
+      <button class="mi" id="importOld">Bring over an older Deluxe Mail inbox</button>
+      <a class="mi" id="acctLink" href="https://deluxe-drive.deluxelordd.workers.dev/main/" target="_blank" rel="noopener">Your Deluxe account</a>
+      <button class="mi" id="logout">Sign out</button>
     </div>
   </div>
 </header>
 
 <!-- AUTH -->
-<section id="authView">
+<section id="authView" class="hide">
   <div class="card auth">
-    <h1>Get your deluxe address</h1>
-    <p class="sub">Pick a name. Your inbox is ready instantly.</p>
+    <h1>Your deluxe address</h1>
+    <p class="sub">Deluxe Mail uses your Deluxe account. Sign in on Deluxe Main and your inbox is ready: your address is your Deluxe name, like <b>yourname@deluxemail.com</b>.</p>
     <p class="sub" style="font-size:13px">Deluxe Mail addresses work between Deluxe Mail users.</p>
-    <button type="button" id="googleBtn" style="width:100%;padding:12px;margin-top:6px">🇬 Continue with Google (Gmail only)</button>
-    <p class="sub" style="font-size:12px;margin:6px 0 0">No Deluxe account needed. You get a read-only view of your Gmail.</p>
-    <p class="err" id="googleErr" style="margin:6px 0 0"></p>
-    <p class="sub" style="text-align:center;margin:10px 0 0">— or use a Deluxe address —</p>
-    <div class="tabs">
-      <button id="tabSignup" class="active">Create account</button>
-      <button id="tabLogin">Log in</button>
-    </div>
-    <form id="authForm">
-      <div id="displayWrap">
-        <label>Your name</label>
-        <input id="displayName" placeholder="e.g. Alex Carter" maxlength="60">
-      </div>
-      <label>Choose your address</label>
-      <div class="addr">
-        <input id="username" placeholder="yourname" maxlength="30" autocomplete="username" autocapitalize="none" required>
-        <div class="dom">@deluxemail.com</div>
-      </div>
-      <label>Password</label>
-      <input id="password" type="password" placeholder="At least 8 characters" autocomplete="current-password" required>
-      <p class="err" id="authErr"></p>
-      <button class="primary" style="width:100%;margin-top:8px;padding:12px" id="authSubmit">Create my Deluxe account</button>
-    </form>
+    <p class="err" id="authErr"></p>
+    <button class="primary" style="width:100%;margin-top:8px;padding:12px" id="authSubmit">Sign in with Deluxe Main</button>
+    <button style="width:100%;margin-top:10px;padding:12px" id="guestBtn">Continue as guest</button>
+    <p class="sub" style="font-size:13px;text-align:center;margin-top:12px">No account yet? <a id="mainLink" href="https://deluxe-drive.deluxelordd.workers.dev/main/" target="_blank" rel="noopener">Create one on Deluxe Main</a></p>
   </div>
 </section>
 
@@ -192,7 +185,10 @@
   <aside class="nav" id="nav">
     <button class="primary compose-btn" id="composeBtn">✎ Compose</button>
     <button class="item active" id="fInbox"><span>📥 Inbox</span><span class="badge hide" id="unread"></span></button>
+    <button class="item" id="fStarred"><span>⭐ Starred</span></button>
     <button class="item" id="fSent"><span>📤 Sent</span></button>
+    <button class="item" id="fDrafts"><span>📝 Drafts</span></button>
+    <button class="item" id="fTrash"><span>🗑 Trash</span></button>
     <button class="item" id="fGmail"><span>✉️ Gmail</span></button>
     <div class="foot">Deluxe Mail ✦</div>
   </aside>
@@ -205,7 +201,9 @@
     <div class="chips">
       <button class="chip active" id="cAll">All</button>
       <button class="chip" id="cUnread">Unread</button>
+      <button class="chip hide" id="emptyTrash">Empty trash</button>
     </div>
+    <div class="guestbar hide" id="guestBar">You are a guest: drafts stay in this browser. <button class="linkish" id="guestSignIn">Sign in with Deluxe Main</button> to get your @deluxemail.com address and send mail.</div>
     <div class="list" id="list"></div>
   </section>
 
@@ -217,7 +215,7 @@
 
 <!-- COMPOSE -->
 <div class="compose" id="compose">
-  <div class="chead"><span>New message</span><button class="icon" id="closeCompose" aria-label="Close">✕</button></div>
+  <div class="chead"><span id="composeTitle">New message</span><span class="saved" id="savedNote"></span><button class="icon" id="closeCompose" aria-label="Close">✕</button></div>
   <div class="cbody">
     <label>To</label><input id="to" placeholder="friend@deluxemail.com" autocapitalize="none">
     <label>Subject</label><input id="subject">
@@ -230,13 +228,16 @@
   </div>
 </div>
 
+<script src="https://deluxe-drive.deluxelordd.workers.dev/main/deluxe.js" data-app="mail"></script>
 <script>
 const $ = (id) => document.getElementById(id);
 const state = { folder: "inbox", msgs: [], filter: "all", q: "", openKey: null };
-let mode = "signup";
-let token = localStorage.getItem("dm_token");
-let address = localStorage.getItem("dm_addr");
-let myName = localStorage.getItem("dm_name") || "";
+// Signed in with Deluxe Main (deluxe.js keeps the key).
+const D = window.Deluxe;
+let token = D ? D.token() : null;
+let address = null;
+let myName = "";
+["dm_token", "dm_addr", "dm_name", "dm_google"].forEach((k) => { try { localStorage.removeItem(k); } catch (e) {} });
 
 /* ---------- helpers ---------- */
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -273,57 +274,39 @@ const drawer = (open) => { $("nav").classList.toggle("open", open); $("scrim").c
 $("menuBtn").onclick = () => drawer(true);
 $("scrim").onclick = () => drawer(false);
 
-/* ---------- auth ---------- */
-function setMode(m) {
-  mode = m;
-  $("tabSignup").classList.toggle("active", m === "signup");
-  $("tabLogin").classList.toggle("active", m === "login");
-  $("displayWrap").classList.toggle("hide", m === "login");
-  $("authSubmit").textContent = m === "signup" ? "Create my Deluxe account" : "Log in";
-  $("authErr").textContent = "";
-}
-$("tabSignup").onclick = () => setMode("signup");
-$("tabLogin").onclick = () => setMode("login");
-
-$("authForm").onsubmit = async (e) => {
-  e.preventDefault();
-  $("authErr").textContent = "";
-  const username = $("username").value.trim().toLowerCase();
-  const password = $("password").value;
-  try {
-    if (mode === "signup") {
-      await api("signup", { method: "POST", body: JSON.stringify({ username, password, displayName: $("displayName").value }) });
-    }
-    const s = await api("login", { method: "POST", body: JSON.stringify({ username, password }) });
-    token = s.token; address = s.address; myName = s.displayName || username;
-    localStorage.setItem("dm_token", token); localStorage.setItem("dm_addr", address); localStorage.setItem("dm_name", myName);
-    enterMail();
-  } catch (err) {
-    $("authErr").textContent = err.message + (mode === "login" && /Wrong/.test(err.message) ? " New here? Tap “Create account” first." : "");
-  }
+/* ---------- auth: Deluxe Main ---------- */
+$("authSubmit").onclick = () => {
+  if (!D) { $("authErr").textContent = "Deluxe Main could not be reached. Check your connection and reload."; return; }
+  $("authSubmit").disabled = true; $("authSubmit").textContent = "Opening Deluxe Main…";
+  D.signIn();
 };
+if (D) { $("mainLink").href = D.main + "/"; $("acctLink").href = D.main + "/"; }
 
-$("googleBtn").onclick = async () => {
-  $("googleErr").textContent = "";
-  try { const { url } = await api("google/start", { method: "POST" }); location.href = url; }
-  catch (e) { $("googleErr").textContent = e.message; }
-};
-
-const isG = () => localStorage.getItem("dm_google") === "1";
-function applyGoogleMode() {
-  const g = isG();
-  ["fInbox", "fSent", "composeBtn"].forEach((id) => $(id).classList.toggle("hide", g));
-}
+const isG = () => false;
+function applyGoogleMode() {}
 
 function logout() {
+  if (guest) { guest = false; try { localStorage.removeItem("deluxe.guest"); } catch (e) {} location.reload(); return; }
   token = null; address = null;
-  ["dm_token", "dm_addr", "dm_name", "dm_google"].forEach((k) => localStorage.removeItem(k));
-  applyGoogleMode();
+  if (D) D.signOut();
   $("authView").classList.remove("hide");
   ["app", "userDd", "menuBtn"].forEach((id) => $(id).classList.add("hide"));
+  $("authSubmit").disabled = false; $("authSubmit").textContent = "Sign in with Deluxe Main";
   closeReader(); $("compose").classList.remove("open");
 }
 $("logout").onclick = logout;
+
+$("importOld").onclick = async () => {
+  const username = prompt("Your old Deluxe Mail name (the part before @deluxemail.com):");
+  if (!username) return;
+  const password = prompt("The password of that old Deluxe Mail account:");
+  if (!password) return;
+  try {
+    const r = await api("import", { method: "POST", body: JSON.stringify({ username, password }) });
+    alert(r.moved ? `Moved ${r.moved} messages into your Deluxe account.` : "That account had no messages. It has been closed.");
+    load();
+  } catch (e) { alert(e.message); }
+};
 
 /* ---------- mail ---------- */
 function enterMail() {
@@ -337,15 +320,17 @@ function enterMail() {
   load();
 }
 
+const FOLDER_BTNS = { inbox: "fInbox", starred: "fStarred", sent: "fSent", drafts: "fDrafts", trash: "fTrash", gmail: "fGmail" };
 function setFolderUi() {
-  $("fInbox").classList.toggle("active", state.folder === "inbox");
-  $("fSent").classList.toggle("active", state.folder === "sent");
-  $("fGmail").classList.toggle("active", state.folder === "gmail");
+  for (const [f, id] of Object.entries(FOLDER_BTNS)) $(id).classList.toggle("active", state.folder === f);
+  $("emptyTrash").classList.toggle("hide", state.folder !== "trash");
 }
 
-function updateUnread() {
-  if (state.folder !== "inbox") return;
-  const n = state.msgs.filter((m) => !m.read).length;
+let unreadCount = 0;
+function updateUnread(count) {
+  if (count !== undefined) unreadCount = count;
+  else if (state.folder === "inbox") unreadCount = state.msgs.filter((m) => !m.read).length;
+  const n = unreadCount;
   $("unread").textContent = n; $("unread").classList.toggle("hide", !n);
 }
 
@@ -377,12 +362,13 @@ async function loadGmail(silent) {
 }
 
 async function load(silent) {
+  if (guest) return loadGuest();
   if (state.folder === "gmail") return loadGmail(silent);
   if (!silent) $("list").innerHTML = '<div class="empty">Loading…</div>';
   try {
-    const { messages } = await api("list?folder=" + state.folder);
+    const { messages, unread } = await api("list?folder=" + state.folder);
     state.msgs = messages;
-    updateUnread();
+    updateUnread(unread);
     renderList();
   } catch (e) { if (!silent) $("list").innerHTML = '<div class="empty">' + esc(e.message) + "</div>"; }
 }
@@ -397,36 +383,47 @@ function renderList() {
   if (!items.length) { box.innerHTML = '<div class="empty">' + (state.msgs.length ? "No messages match." : "Nothing here yet.") + "</div>"; return; }
   box.innerHTML = "";
   items.forEach((m) => {
-    const who = state.folder === "sent" ? m.to : m.from;
+    const mine = m.folder === "sent" || m.folder === "drafts";
+    const who = mine ? m.to || "(no recipient)" : m.from;
     const row = document.createElement("div");
     row.className = "row" + (m.read ? "" : " unread") + (m.key === state.openKey ? " active" : "");
+    const canStar = state.folder !== "gmail" && m.folder !== "drafts" && m.folder !== "trash" && !guest;
     row.innerHTML = `${avatarHtml(who)}
       <div style="min-width:0">
-        <div class="top"><div class="from">${esc(state.folder === "sent" ? "To: " + nameOf(who) : nameOf(who))}<span class="dot"></span></div></div>
-        <div class="subj">${esc(m.subject)}</div>
+        <div class="top"><div class="from">${esc(mine ? "To: " + nameOf(who) : nameOf(who))}${m.folder === "drafts" ? '<span class="tag">Draft</span>' : ""}<span class="dot"></span></div></div>
+        <div class="subj">${esc(m.subject || "(no subject)")}</div>
         <div class="prev">${esc(m.preview)}</div>
       </div>
-      <div class="date">${fmt(m.date)}</div>`;
-    row.onclick = () => openMsg(m.key);
+      <div class="date">${fmt(m.date)}${canStar ? `<br><button class="star${m.starred ? " on" : ""}" aria-label="${m.starred ? "Unstar" : "Star"}">${m.starred ? "★" : "☆"}</button>` : ""}</div>`;
+    row.onclick = () => (m.folder === "drafts" ? openDraft(m.key) : openMsg(m.key));
+    const star = row.querySelector(".star");
+    if (star) star.onclick = (e) => { e.stopPropagation(); setStar(m.key, !m.starred); };
     box.appendChild(row);
   });
 }
 
 async function openMsg(key) {
   try {
-    const m = state.folder === "gmail"
+    const m = guest
+      ? state.msgs.find((x) => x.key === key)
+      : state.folder === "gmail"
       ? await api("gmail/message?id=" + encodeURIComponent(key))
       : await api("message?key=" + encodeURIComponent(key));
     state.openKey = key;
     const local = state.msgs.find((x) => x.key === key);
-    if (local && !local.read) { local.read = true; updateUnread(); }
+    if (local && !local.read) {
+      local.read = true;
+      updateUnread(state.folder === "inbox" ? undefined : Math.max(0, unreadCount - (m.folder === "inbox" ? 1 : 0)));
+    }
     renderList();
     const who = state.folder === "sent" ? m.to : m.from;
+    const gmail = state.folder === "gmail", trashed = m.folder === "trash";
     $("reader").innerHTML = `
       <div class="rbar">
         <button class="backbtn icon" id="back">← Back</button>
-        ${isG() ? "" : '<button id="reply">↩ Reply</button>'}
-        ${state.folder === "gmail" ? "" : '<button id="del">🗑 Delete</button>'}
+        ${trashed ? "" : '<button id="reply">↩ Reply</button><button id="fwd">↪ Forward</button>'}
+        ${gmail || trashed || guest ? "" : `<button id="starBtn">${m.starred ? "★ Starred" : "☆ Star"}</button><button id="unreadBtn">Mark unread</button>`}
+        ${gmail || guest ? "" : trashed ? '<button id="restore">↺ Restore</button><button id="del">Delete forever</button>' : '<button id="del">🗑 Delete</button>'}
       </div>
       <div class="rbody">
         <h2>${esc(m.subject)}</h2>
@@ -438,18 +435,48 @@ async function openMsg(key) {
       </div>`;
     $("app").classList.add("reading");
     $("back").onclick = closeReader;
+    const quote = (label) => "\n\n— " + label + " " + new Date(m.date).toLocaleString() + ", " + nameOf(m.from) + " wrote:\n" + String(m.body).split("\n").map((l) => "> " + l).join("\n");
     if ($("reply")) $("reply").onclick = () => openCompose(
-      state.folder === "sent" ? m.to : emailOf(m.from),
+      m.folder === "sent" ? m.to : emailOf(m.from),
       /^re:/i.test(m.subject) ? m.subject : "Re: " + m.subject,
-      "\n\n— On " + new Date(m.date).toLocaleString() + ", " + nameOf(m.from) + " wrote:\n" + String(m.body).split("\n").map((l) => "> " + l).join("\n")
+      quote("On")
     );
+    if ($("fwd")) $("fwd").onclick = () => openCompose("", /^fwd:/i.test(m.subject) ? m.subject : "Fwd: " + m.subject,
+      "\n\n---------- Forwarded message ----------\nFrom: " + m.from + "\nTo: " + m.to + "\nDate: " + new Date(m.date).toLocaleString() + "\nSubject: " + m.subject + "\n\n" + m.body);
+    if ($("starBtn")) $("starBtn").onclick = async () => { await setStar(key, !m.starred); m.starred = !m.starred; $("starBtn").textContent = m.starred ? "★ Starred" : "☆ Star"; };
+    if ($("unreadBtn")) $("unreadBtn").onclick = async () => {
+      await api("update", { method: "POST", body: JSON.stringify({ key, read: false }) });
+      const local = state.msgs.find((x) => x.key === key); if (local) local.read = false;
+      closeReader(); updateUnread(state.folder === "inbox" ? undefined : unreadCount + (m.folder === "inbox" ? 1 : 0));
+    };
+    if ($("restore")) $("restore").onclick = async () => {
+      await api("restore", { method: "POST", body: JSON.stringify({ key }) });
+      state.msgs = state.msgs.filter((x) => x.key !== key); closeReader();
+    };
     if ($("del")) $("del").onclick = async () => {
-      if (!confirm("Delete this message?")) return;
+      if (trashed && !confirm("Delete this message for good?")) return;
       await api("delete", { method: "POST", body: JSON.stringify({ key }) });
       state.msgs = state.msgs.filter((x) => x.key !== key);
       closeReader(); updateUnread(); renderList();
+      if (!trashed) toast("Moved to Trash");
     };
   } catch (e) { alert(e.message); }
+}
+
+async function setStar(key, on) {
+  try {
+    await api("update", { method: "POST", body: JSON.stringify({ key, starred: on }) });
+    const local = state.msgs.find((x) => x.key === key);
+    if (local) local.starred = on;
+    if (state.folder === "starred" && !on) state.msgs = state.msgs.filter((x) => x.key !== key);
+    renderList();
+  } catch (e) { alert(e.message); }
+}
+
+function toast(text) {
+  let t = $("toast");
+  if (!t) { t = document.createElement("div"); t.id = "toast"; t.style.cssText = "position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--panel2);border:1px solid var(--line);padding:10px 16px;border-radius:10px;z-index:99"; document.body.appendChild(t); }
+  t.textContent = text; t.hidden = false; clearTimeout(t._h); t._h = setTimeout(() => { t.hidden = true; }, 2500);
 }
 
 function closeReader() {
@@ -465,6 +492,13 @@ function setFolder(f) {
 }
 $("fInbox").onclick = () => setFolder("inbox");
 $("fSent").onclick = () => setFolder("sent");
+$("fStarred").onclick = () => setFolder("starred");
+$("fDrafts").onclick = () => setFolder("drafts");
+$("fTrash").onclick = () => setFolder("trash");
+$("emptyTrash").onclick = async () => {
+  if (!confirm("Delete everything in Trash for good?")) return;
+  await api("empty-trash", { method: "POST" }); load();
+};
 $("fGmail").onclick = () => setFolder("gmail");
 $("gDisc").onclick = async () => {
   if (!confirm("Disconnect Gmail from Deluxe Mail?")) return;
@@ -478,43 +512,128 @@ $("search").oninput = (e) => { state.q = e.target.value; renderList(); };
 $("cAll").onclick = () => { state.filter = "all"; $("cAll").classList.add("active"); $("cUnread").classList.remove("active"); renderList(); };
 $("cUnread").onclick = () => { state.filter = "unread"; $("cUnread").classList.add("active"); $("cAll").classList.remove("active"); renderList(); };
 
-/* ---------- compose ---------- */
-function openCompose(to = "", subject = "", body = "") {
+/* ---------- compose (drafts save themselves) ---------- */
+let draftKey = null, draftTimer = null, draftDirty = false;
+function openCompose(to = "", subject = "", body = "", key = null) {
   $("to").value = to; $("subject").value = subject; $("body").value = body; $("sendErr").textContent = "";
+  draftKey = key; draftDirty = false; $("savedNote").textContent = "";
+  $("composeTitle").textContent = key ? "Draft" : "New message";
   $("compose").classList.add("open"); drawer(false);
   (to ? $("body") : $("to")).focus();
 }
-const closeCompose = () => $("compose").classList.remove("open");
+async function openDraft(key) {
+  if (guest) { const d = guestDrafts().find((x) => x.key === key); if (d) openCompose(d.to, d.subject, d.body, key); return; }
+  try { const d = await api("message?key=" + encodeURIComponent(key)); openCompose(d.to, d.subject, d.body, key); }
+  catch (e) { alert(e.message); }
+}
+async function saveDraft() {
+  if (!draftDirty) return;
+  const d = { to: $("to").value, subject: $("subject").value, body: $("body").value };
+  if (!d.to && !d.subject && !d.body.trim()) return;
+  draftDirty = false;
+  try {
+    if (guest) draftKey = saveGuestDraft({ ...d, key: draftKey });
+    else draftKey = (await api("draft", { method: "POST", body: JSON.stringify({ ...d, key: draftKey }) })).key;
+    $("savedNote").textContent = "Saved to Drafts";
+  } catch (e) { draftDirty = true; }
+}
+["to", "subject", "body"].forEach((id) => $(id).addEventListener("input", () => {
+  draftDirty = true; $("savedNote").textContent = "";
+  clearTimeout(draftTimer); draftTimer = setTimeout(saveDraft, 1500);
+}));
+const closeCompose = async () => {
+  clearTimeout(draftTimer); await saveDraft();
+  $("compose").classList.remove("open");
+  if (state.folder === "drafts") load(true);
+};
 $("composeBtn").onclick = () => openCompose();
 $("closeCompose").onclick = closeCompose;
-$("discard").onclick = closeCompose;
+$("discard").onclick = async () => {
+  clearTimeout(draftTimer); draftDirty = false;
+  if (draftKey) {
+    if (guest) removeGuestDraft(draftKey);
+    else await api("delete", { method: "POST", body: JSON.stringify({ key: draftKey }) }).catch(() => {});
+  }
+  draftKey = null; $("compose").classList.remove("open");
+  if (state.folder === "drafts") load(true);
+};
 $("sendBtn").onclick = async () => {
   $("sendErr").textContent = "";
+  if (guest) { $("sendErr").textContent = "Sign in with Deluxe Main to send mail. Your message is kept in Drafts."; draftDirty = true; await saveDraft(); return; }
   $("sendBtn").disabled = true;
+  clearTimeout(draftTimer);
   try {
-    await api("send", { method: "POST", body: JSON.stringify({ to: $("to").value, subject: $("subject").value, body: $("body").value }) });
-    closeCompose(); closeReader(); setFolder("sent");
+    await api("send", { method: "POST", body: JSON.stringify({ to: $("to").value, subject: $("subject").value, body: $("body").value, draftKey }) });
+    draftDirty = false; draftKey = null;
+    $("compose").classList.remove("open"); closeReader(); setFolder("sent");
   } catch (e) { $("sendErr").textContent = e.message; }
   $("sendBtn").disabled = false;
 };
 
-/* quiet auto-refresh */
-setInterval(() => { if (token && !$("app").classList.contains("hide") && !document.hidden) load(true); }, 30000);
-
-const hp = new URLSearchParams(location.hash.slice(1));
-if (hp.get("gtoken")) {
-  token = hp.get("gtoken"); address = hp.get("gaddr"); myName = hp.get("gname") || address;
-  localStorage.setItem("dm_token", token); localStorage.setItem("dm_addr", address);
-  localStorage.setItem("dm_name", myName); localStorage.setItem("dm_google", "1");
-  history.replaceState(null, "", location.pathname);
+/* ---------- guests: no account, drafts in this browser ---------- */
+let guest = false;
+const GUEST_DRAFTS = "dm.guestDrafts";
+function guestDrafts() { try { const v = JSON.parse(localStorage.getItem(GUEST_DRAFTS) || "[]"); return Array.isArray(v) ? v : []; } catch (e) { return []; } }
+function saveGuestDraft(d) {
+  const all = guestDrafts();
+  const key = d.key || "drafts/" + String(9999999999999 - Date.now()).padStart(13, "0") + "-" + crypto.randomUUID();
+  const item = { key, folder: "drafts", read: true, date: Date.now(), from: "guest", to: d.to, subject: d.subject, body: d.body, preview: String(d.body || "").slice(0, 90) };
+  try { localStorage.setItem(GUEST_DRAFTS, JSON.stringify([item, ...all.filter((x) => x.key !== key)])); } catch (e) {}
+  return key;
 }
+function removeGuestDraft(key) { try { localStorage.setItem(GUEST_DRAFTS, JSON.stringify(guestDrafts().filter((x) => x.key !== key))); } catch (e) {} }
+function loadGuest() {
+  const welcome = { key: "guest-welcome", folder: "inbox", read: true, date: Date.now(), from: "Deluxe Mail <welcome@deluxemail.com>", to: "you", subject: "Welcome, guest ✦",
+    preview: "Sign in with Deluxe Main to get your own @deluxemail.com address.", body: "You are using Deluxe Mail as a guest.\n\nYou can write messages: they are kept in Drafts in this browser.\nSign in with Deluxe Main to get your own @deluxemail.com address, send mail, and keep it on every device. Your guest drafts move into your account when you sign in." };
+  state.msgs = state.folder === "drafts" ? guestDrafts() : state.folder === "inbox" ? [welcome] : [];
+  updateUnread(0); renderList();
+}
+function enterGuest() {
+  guest = true;
+  if (D) D.continueAsGuest();
+  address = "Guest"; myName = "Guest";
+  enterMail();
+  $("guestBar").classList.remove("hide");
+  ["fGmail", "importOld", "acctLink"].forEach((id) => $(id).classList.add("hide"));
+  $("logout").textContent = "Leave guest mode";
+}
+// Signing in moves guest drafts into the account.
+async function moveGuestDrafts() {
+  const drafts = guestDrafts();
+  for (const d of drafts) {
+    try { await api("draft", { method: "POST", body: JSON.stringify({ to: d.to, subject: d.subject, body: d.body }) }); removeGuestDraft(d.key); } catch (e) { return; }
+  }
+  if (drafts.length) toast(`Moved ${drafts.length} guest draft${drafts.length === 1 ? "" : "s"} into your account`);
+}
+$("guestBtn").onclick = enterGuest;
+$("guestSignIn").onclick = () => { if (D) D.signIn(); };
+
+/* quiet auto-refresh */
+setInterval(() => { if (token && !guest && !$("app").classList.contains("hide") && !document.hidden) load(true); }, 30000);
+
 const gres = new URLSearchParams(location.search).get("gmail");
 if (gres) history.replaceState(null, "", location.pathname);
-if (token && address) {
+async function start() {
+  const user = D ? await D.ready : null;
+  token = D ? D.token() : null;
+  if (!user || !token) {
+    if (D && D.isGuest()) { enterGuest(); return; }
+    $("authView").classList.remove("hide"); return;
+  }
+  try {
+    const me = await api("me");
+    address = me.address; myName = me.displayName || user.name;
+  } catch (e) {
+    $("authView").classList.remove("hide");
+    $("authErr").textContent = e.message;
+    return;
+  }
   enterMail();
+  moveGuestDrafts();
   if (gres === "connected") setFolder("gmail");
   else if (gres === "error") alert("Gmail connection failed. Please try again.");
 }
+start();
 </script>
 </body>
 </html>
