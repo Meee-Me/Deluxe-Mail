@@ -1,7 +1,7 @@
 # Deluxe Mail
 
 An inbox at `yourname@deluxemail.com`, signed in with your **Deluxe account** from
-[Deluxe Main](https://deluxe-drive.deluxelordd.workers.dev/main). Nobody signs up here: accounts are only
+[Deluxe Main](https://deluxe-main.vercel.app). Nobody signs up here: accounts are only
 made on Deluxe Main, and your address is your Deluxe handle (shown on Deluxe Main's account page).
 
 - `index.html` is the whole app. It loads `deluxe.js` from Deluxe Main for **Sign in with Deluxe Main**.
@@ -25,7 +25,7 @@ made on Deluxe Main, and your address is your Deluxe handle (shown on Deluxe Mai
    `APP_KEY_MAIL` (Workers & Pages, deluxe-drive, Settings, Variables and Secrets; any long random text).
 2. On Vercel (or Netlify), set environment variables:
    - `MAIN_APP_KEY`: the same text as `APP_KEY_MAIL` (secret)
-   - `MAIN_URL`: only if Deluxe Main is not at `https://deluxe-drive.deluxelordd.workers.dev/main`
+   - `MAIN_URL`: only if the Deluxe data server is not at `https://deluxe-drive.deluxelordd.workers.dev/main`
    - optional: `RESEND_API_KEY` (sending outside), `INBOUND_SECRET` (receiving),
      `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `TOKEN_ENC_KEY`, `GOOGLE_REDIRECT_URI` (read-only Gmail)
 3. Deploy. Vercel: import the repository, no build command. Netlify: publish `.`, functions `netlify/functions`.
