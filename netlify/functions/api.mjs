@@ -1,46 +1,112 @@
 import { getStore } from "@netlify/blobs";
 import crypto from "node:crypto";
 
+// Deluxe Mail's server.
+//
+// Accounts belong to Deluxe Main: people "Sign in with Deluxe Main", and every
+// request carries the key Deluxe Main gave this site, which is checked with
+// Deluxe Main. Nobody signs up here. A person's address is their Deluxe handle
+// (shown on Deluxe Main), e.g. shivad.sujith@deluxemail.com.
+//
+// Mail (and the Gmail connection) is saved in Deluxe Main, under the "mail"
+// website, using this site's key for Deluxe Main (MAIN_APP_KEY). Only short-lived
+// Google sign-in state stays in Netlify Blobs.
+//
+// Environment: MAIN_URL (default below), MAIN_APP_KEY (the same value as
+// APP_KEY_MAIL on Deluxe Main), and optionally RESEND_API_KEY, INBOUND_SECRET,
+// GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, TOKEN_ENC_KEY, GOOGLE_REDIRECT_URI.
+
 export const config = { path: "/api/*" };
 
 const DOMAIN = "deluxemail.com";
+const MAIN = String(process.env.MAIN_URL || "https://deluxe-main.deluxelordd.workers.dev").replace(/\/+$/, "");
 const json = (data, status = 200) =>
   new Response(JSON.stringify(data), {
     status,
     headers: { "Content-Type": "application/json" },
   });
 
-const users = () => getStore("users");
-const sessions = () => getStore("sessions");
-const mail = () => getStore("mail");
-
-const validName = (n) => /^[a-z0-9._-]{3,30}$/.test(n);
+const oauthStore = () => getStore("oauth");
 const clean = (s, max) => String(s ?? "").slice(0, max);
 
-function hashPassword(pw, salt = crypto.randomBytes(16).toString("hex")) {
-  const hash = crypto.scryptSync(pw, salt, 64).toString("hex");
-  return { salt, hash };
-}
-function checkPassword(pw, { salt, hash }) {
-  const test = crypto.scryptSync(pw, salt, 64);
-  return crypto.timingSafeEqual(test, Buffer.from(hash, "hex"));
+/* ---------- Deluxe Main ---------- */
+
+class MainError extends Error {}
+
+async function mainFetch(path, init = {}) {
+  let r;
+  try {
+    r = await fetch(MAIN + path, init);
+  } catch (e) {
+    throw new MainError("Deluxe Main could not be reached. Try again in a moment.");
+  }
+  return r;
 }
 
+// Who a Deluxe Main key belongs to (cached for a minute).
+const seen = new Map();
 async function auth(req) {
   const h = req.headers.get("authorization") || "";
   const token = h.startsWith("Bearer ") ? h.slice(7) : "";
   if (!token) return null;
-  const s = await sessions().get(token, { type: "json" });
-  if (!s || s.expires < Date.now()) return null;
-  return s.username;
+  const hit = seen.get(token);
+  if (hit && hit.until > Date.now()) return hit.user;
+  const r = await mainFetch("/api/auth/me", { headers: { Authorization: "Bearer " + token } });
+  if (r.status >= 500) throw new MainError("Deluxe Main could not be reached. Try again in a moment.");
+  const d = r.ok ? await r.json() : null;
+  const user = d && d.user && (d.app === "mail" || d.app === "main") ? d.user : null;
+  if (seen.size > 2000) seen.clear();
+  seen.set(token, { user, until: Date.now() + (user ? 60000 : 5000) });
+  return user;
 }
 
-async function deliver(username, folder, msg) {
+function appHeaders(accountId, extra = {}) {
+  if (!process.env.MAIN_APP_KEY) throw new MainError("Deluxe Mail is not connected to Deluxe Main yet (set MAIN_APP_KEY).");
+  return { Authorization: "App " + process.env.MAIN_APP_KEY, "X-Deluxe-App": "mail", ...(accountId ? { "X-Deluxe-Account": accountId } : {}), ...extra };
+}
+
+async function findAccount(handle) {
+  const r = await mainFetch("/api/server/account?handle=" + encodeURIComponent(handle), { headers: appHeaders() });
+  if (r.status === 404) return null;
+  if (!r.ok) throw new MainError("Deluxe Main could not look that address up.");
+  return (await r.json()).user;
+}
+
+// This account's saved mail in Deluxe Main.
+function mainData(accountId) {
+  const base = "/api/data/mail";
+  const key = (k) => base + "/" + encodeURIComponent(k);
+  const call = async (path, init = {}) => {
+    const r = await mainFetch(path, { ...init, headers: appHeaders(accountId, init.body ? { "Content-Type": "application/json" } : {}) });
+    if (!r.ok && r.status !== 404) throw new MainError("Deluxe Main could not save that (" + r.status + ").");
+    return r;
+  };
+  return {
+    async list(prefix, { limit = 100 } = {}) {
+      const r = await call(`${base}?prefix=${encodeURIComponent(prefix)}&order=asc&limit=${limit}`);
+      return (await r.json()).items || [];
+    },
+    async get(k) {
+      const r = await call(key(k));
+      return r.status === 404 ? null : (await r.json()).value;
+    },
+    async set(k, value) {
+      await call(key(k), { method: "PUT", body: JSON.stringify({ value }) });
+    },
+    async del(k) {
+      await call(key(k), { method: "DELETE" });
+    },
+  };
+}
+
+const addressOf = (user) => `${user.handle}@${DOMAIN}`;
+
+async function deliver(account, folder, msg) {
   const id = crypto.randomUUID();
-  // reverse timestamp so newest sorts first on list()
+  // reverse timestamp so newest sorts first
   const rev = String(9999999999999 - Date.now()).padStart(13, "0");
-  const key = `${username}/${folder}/${rev}-${id}`;
-  await mail().setJSON(key, { id, key, folder, date: Date.now(), read: folder === "sent", ...msg });
+  const key = `${folder}/${rev}-${id}`;
+  await mainData(account.id).set(key, { id, key, folder, date: Date.now(), read: folder === "sent", ...msg });
   return key;
 }
 
@@ -56,9 +122,14 @@ async function sendExternal(from, to, subject, body) {
   return { ok: true };
 }
 
+/* ---------- old Deluxe Mail accounts (before Deluxe Main) ---------- */
+
+function checkOldPassword(pw, { salt, hash }) {
+  const test = crypto.scryptSync(pw, salt, 64);
+  return crypto.timingSafeEqual(test, Buffer.from(hash, "hex"));
+}
+
 // ---------- Gmail (read-only, per-user OAuth) ----------
-const gStore = () => getStore("gmail");
-const oauthStore = () => getStore("oauth");
 const GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
 const gConfigured = () =>
   !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET && process.env.TOKEN_ENC_KEY);
@@ -74,8 +145,8 @@ function decrypt(o) {
   d.setAuthTag(Buffer.from(o.tag, "base64"));
   return Buffer.concat([d.update(Buffer.from(o.data, "base64")), d.final()]).toString("utf8");
 }
-async function gAccessToken(username) {
-  const rec = await gStore().get(username, { type: "json" });
+async function gAccessToken(account) {
+  const rec = await mainData(account.id).get("gmail");
   if (!rec) return null;
   const r = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
@@ -128,36 +199,9 @@ export default async (req) => {
   const method = req.method;
 
   try {
-    // ---------- Sign up ----------
-    if (route === "signup" && method === "POST") {
-      const b = await req.json();
-      const username = clean(b.username, 30).toLowerCase().trim();
-      const password = clean(b.password, 200);
-      const displayName = clean(b.displayName || username, 60).trim();
-      if (!validName(username))
-        return json({ error: "Name must be 3–30 characters: letters, numbers, dot, dash or underscore." }, 400);
-      if (password.length < 8) return json({ error: "Password must be at least 8 characters." }, 400);
-      if (await users().get(username)) return json({ error: "That name is already taken." }, 409);
-
-      await users().setJSON(username, { username, displayName, ...hashPassword(password), created: Date.now() });
-      await deliver(username, "inbox", {
-        from: `Deluxe Mail <welcome@${DOMAIN}>`,
-        to: `${username}@${DOMAIN}`,
-        subject: "Welcome to Deluxe Mail ✦",
-        body: `Hi ${displayName},\n\nYour deluxe address is ${username}@${DOMAIN}.\nShare it with anyone – messages land right here.\n\n— The Deluxe Mail team`,
-      });
-      return json({ ok: true, address: `${username}@${DOMAIN}` });
-    }
-
-    // ---------- Log in ----------
-    if (route === "login" && method === "POST") {
-      const b = await req.json();
-      const username = clean(b.username, 60).toLowerCase().trim().replace(`@${DOMAIN}`, "");
-      const u = await users().get(username, { type: "json" });
-      if (!u || u.google || !checkPassword(clean(b.password, 200), u)) return json({ error: "Wrong name or password." }, 401);
-      const token = crypto.randomBytes(32).toString("hex");
-      await sessions().setJSON(token, { username, expires: Date.now() + 30 * 864e5 });
-      return json({ token, address: `${username}@${DOMAIN}`, displayName: u.displayName });
+    // Accounts are made and signed in on Deluxe Main now.
+    if (["signup", "login", "google/start"].includes(route)) {
+      return json({ error: "Deluxe Mail uses your Deluxe account. Sign in with Deluxe Main." }, 410);
     }
 
     // ---------- Inbound mail webhook (Postmark/Mailgun-style JSON) ----------
@@ -168,32 +212,15 @@ export default async (req) => {
       const toRaw = clean(b.OriginalRecipient || b.To || b.to || b.recipient, 300).toLowerCase();
       const m = toRaw.match(/([a-z0-9._-]+)@deluxemail\.com/);
       if (!m) return json({ error: "No deluxemail recipient" }, 200);
-      if (!(await users().get(m[1]))) return json({ error: "Unknown user" }, 200);
-      await deliver(m[1], "inbox", {
+      const rcpt = await findAccount(m[1]);
+      if (!rcpt) return json({ error: "Unknown user" }, 200);
+      await deliver(rcpt, "inbox", {
         from: clean(b.From || b.from || b.sender, 300),
-        to: `${m[1]}@${DOMAIN}`,
+        to: addressOf(rcpt),
         subject: clean(b.Subject || b.subject || "(no subject)", 300),
         body: clean(b.TextBody || b["body-plain"] || b.text || "", 50000),
       });
       return json({ ok: true });
-    }
-
-    // ---------- Sign in with Google (Gmail-only, no Deluxe account) ----------
-    if (route === "google/start" && method === "POST") {
-      if (!gConfigured()) return json({ error: "Google sign-in isn't set up on this site yet." }, 501);
-      const st = crypto.randomBytes(24).toString("hex");
-      const redirect = process.env.GOOGLE_REDIRECT_URI || `${url.origin}/api/gmail/callback`;
-      await oauthStore().setJSON(st, { mode: "login", redirect, expires: Date.now() + 10 * 60 * 1000 });
-      const q = new URLSearchParams({
-        client_id: process.env.GOOGLE_CLIENT_ID,
-        redirect_uri: redirect,
-        response_type: "code",
-        scope: GMAIL_SCOPE,
-        access_type: "offline",
-        prompt: "consent",
-        state: st,
-      });
-      return json({ url: "https://accounts.google.com/o/oauth2/v2/auth?" + q });
     }
 
     // ---------- Gmail OAuth callback (browser redirect from Google, no login header) ----------
@@ -203,7 +230,7 @@ export default async (req) => {
       if (!gConfigured() || !st || !code) return back("error");
       const rec = await oauthStore().get(st, { type: "json" });
       if (rec) await oauthStore().delete(st);
-      if (!rec || rec.expires < Date.now()) return back("error");
+      if (!rec || rec.expires < Date.now() || !rec.accountId) return back("error");
       const tr = await fetch("https://oauth2.googleapis.com/token", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -219,45 +246,54 @@ export default async (req) => {
       const tok = await tr.json();
       if (!tok.refresh_token) return back("error");
       const prof = await gGet(tok.access_token, "profile");
-      if (rec.mode === "login") {
-        // Gmail-only account. The ":" can never appear in a normal username, so nobody can pre-register this id.
-        const gid = "google:" + crypto.createHash("sha256").update(String(prof.emailAddress).toLowerCase()).digest("hex").slice(0, 24);
-        const existing = await users().get(gid, { type: "json" });
-        if (!existing) await users().setJSON(gid, { username: gid, displayName: prof.emailAddress, google: true, email: prof.emailAddress, created: Date.now() });
-        await gStore().setJSON(gid, { email: prof.emailAddress, token: encrypt(tok.refresh_token), connected: Date.now() });
-        const sess = crypto.randomBytes(32).toString("hex");
-        await sessions().setJSON(sess, { username: gid, expires: Date.now() + 30 * 864e5 });
-        const frag = new URLSearchParams({ gtoken: sess, gaddr: prof.emailAddress, gname: prof.emailAddress });
-        return new Response(null, { status: 302, headers: { Location: "/#" + frag } });
-      }
-      await gStore().setJSON(rec.username, { email: prof.emailAddress, token: encrypt(tok.refresh_token), connected: Date.now() });
+      await mainData(rec.accountId).set("gmail", { email: prof.emailAddress, token: encrypt(tok.refresh_token), connected: Date.now() });
       return back("connected");
     }
 
-    // ---------- Everything below needs a login ----------
+    // ---------- Everything below needs a Deluxe account ----------
     const me = await auth(req);
-    if (!me) return json({ error: "Please log in." }, 401);
+    if (!me) return json({ error: "Please sign in with Deluxe Main." }, 401);
+    const store = mainData(me.id);
+
+    if (route === "me" && method === "GET") {
+      // The first visit gets a welcome message.
+      const welcomed = await store.get("welcomed");
+      if (!welcomed) {
+        await store.set("welcomed", Date.now());
+        await deliver(me, "inbox", {
+          from: `Deluxe Mail <welcome@${DOMAIN}>`,
+          to: addressOf(me),
+          subject: "Welcome to Deluxe Mail ✦",
+          body: `Hi ${me.name},\n\nYour deluxe address is ${addressOf(me)}.\nShare it with anyone – messages land right here.\n\n— The Deluxe Mail team`,
+        });
+      }
+      return json({ address: addressOf(me), displayName: me.name });
+    }
 
     if (route === "list" && method === "GET") {
       const folder = url.searchParams.get("folder") === "sent" ? "sent" : "inbox";
-      const { blobs } = await mail().list({ prefix: `${me}/${folder}/` });
-      const items = await Promise.all(blobs.slice(0, 100).map((x) => mail().get(x.key, { type: "json" })));
-      return json({ messages: items.filter(Boolean).map(({ body, ...rest }) => ({ ...rest, preview: body.slice(0, 90) })) });
+      const items = await store.list(`${folder}/`, { limit: 100 });
+      return json({
+        messages: items
+          .map((x) => x.value)
+          .filter(Boolean)
+          .map(({ body, ...rest }) => ({ ...rest, preview: String(body || "").slice(0, 90) })),
+      });
     }
 
     if (route === "message" && method === "GET") {
       const key = url.searchParams.get("key") || "";
-      if (!key.startsWith(`${me}/`)) return json({ error: "Not found" }, 404);
-      const msg = await mail().get(key, { type: "json" });
+      if (!/^(inbox|sent)\/[0-9a-f-]+$/i.test(key)) return json({ error: "Not found" }, 404);
+      const msg = await store.get(key);
       if (!msg) return json({ error: "Not found" }, 404);
-      if (!msg.read) await mail().setJSON(key, { ...msg, read: true });
+      if (!msg.read) await store.set(key, { ...msg, read: true });
       return json(msg);
     }
 
     if (route === "delete" && method === "POST") {
       const { key } = await req.json();
-      if (!String(key).startsWith(`${me}/`)) return json({ error: "Not found" }, 404);
-      await mail().delete(key);
+      if (!/^(inbox|sent)\/[0-9a-f-]+$/i.test(String(key))) return json({ error: "Not found" }, 404);
+      await store.del(key);
       return json({ ok: true });
     }
 
@@ -265,34 +301,55 @@ export default async (req) => {
       const b = await req.json();
       const to = clean(b.to, 200).toLowerCase().trim();
       const subject = clean(b.subject || "(no subject)", 300);
-      const body = clean(b.body, 50000);
+      const text = clean(b.body, 50000);
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) return json({ error: "Enter a valid recipient address." }, 400);
-      const u = await users().get(me, { type: "json" });
-      if (u?.google) return json({ error: "Gmail-only accounts can read mail but not send. Create a Deluxe account to send." }, 403);
-      const from = `${me}@${DOMAIN}`;
+      const from = addressOf(me);
 
       if (to.endsWith(`@${DOMAIN}`)) {
-        const rcpt = to.split("@")[0];
-        if (!(await users().get(rcpt))) return json({ error: "No Deluxe Mail account with that name." }, 404);
-        await deliver(rcpt, "inbox", { from: `${u.displayName} <${from}>`, to, subject, body });
+        const rcpt = await findAccount(to.split("@")[0]);
+        if (!rcpt) return json({ error: "No Deluxe Mail account with that name." }, 404);
+        await deliver(rcpt, "inbox", { from: `${me.name} <${from}>`, to, subject, body: text });
       } else {
-        const r = await sendExternal(`${u.displayName} <${from}>`, to, subject, body);
+        const r = await sendExternal(`${me.name} <${from}>`, to, subject, text);
         if (!r.ok) return json({ error: r.error }, 501);
       }
-      await deliver(me, "sent", { from, to, subject, body });
+      await deliver(me, "sent", { from, to, subject, body: text });
       return json({ ok: true });
     }
 
-    // ---------- Gmail (logged-in users) ----------
+    // ---------- Bring over an inbox from before Deluxe Main ----------
+    if (route === "import" && method === "POST") {
+      const b = await req.json();
+      const oldName = clean(b.username, 60).toLowerCase().trim().replace(`@${DOMAIN}`, "");
+      const users = getStore("users");
+      const old = oldName ? await users.get(oldName, { type: "json" }) : null;
+      if (!old || old.google || !old.hash || !checkOldPassword(clean(b.password, 200), old))
+        return json({ error: "That old Deluxe Mail name and password don't match." }, 401);
+      const mail = getStore("mail");
+      const { blobs } = await mail.list({ prefix: `${oldName}/` });
+      let moved = 0;
+      for (const x of blobs) {
+        const msg = await mail.get(x.key, { type: "json" });
+        if (!msg) continue;
+        const key = x.key.slice(oldName.length + 1);
+        await store.set(key, { ...msg, key });
+        await mail.delete(x.key);
+        moved += 1;
+      }
+      await users.delete(oldName);
+      return json({ ok: true, moved });
+    }
+
+    // ---------- Gmail (signed-in users) ----------
     if (route === "gmail/status" && method === "GET") {
-      const rec = await gStore().get(me, { type: "json" });
+      const rec = await store.get("gmail");
       return json({ configured: gConfigured(), connected: !!rec, email: rec?.email || null });
     }
     if (route === "gmail/start" && method === "POST") {
       if (!gConfigured()) return json({ error: "Gmail isn't set up on this site yet." }, 501);
       const st = crypto.randomBytes(24).toString("hex");
       const redirect = process.env.GOOGLE_REDIRECT_URI || `${url.origin}/api/gmail/callback`;
-      await oauthStore().setJSON(st, { username: me, redirect, expires: Date.now() + 10 * 60 * 1000 });
+      await oauthStore().setJSON(st, { accountId: me.id, redirect, expires: Date.now() + 10 * 60 * 1000 });
       const q = new URLSearchParams({
         client_id: process.env.GOOGLE_CLIENT_ID,
         redirect_uri: redirect,
@@ -305,12 +362,12 @@ export default async (req) => {
       return json({ url: "https://accounts.google.com/o/oauth2/v2/auth?" + q });
     }
     if (route === "gmail/disconnect" && method === "POST") {
-      const rec = await gStore().get(me, { type: "json" });
+      const rec = await store.get("gmail");
       if (rec) {
         try {
           await fetch("https://oauth2.googleapis.com/revoke?token=" + encodeURIComponent(decrypt(rec.token)), { method: "POST" });
         } catch (e) { /* best effort */ }
-        await gStore().delete(me);
+        await store.del("gmail");
       }
       return json({ ok: true });
     }
@@ -353,6 +410,7 @@ export default async (req) => {
 
     return json({ error: "Not found" }, 404);
   } catch (e) {
+    if (e instanceof MainError) return json({ error: e.message }, 503);
     return json({ error: "Server error: " + e.message }, 500);
   }
 };

@@ -150,40 +150,22 @@
       <div class="who" id="meAddr"></div>
       <button class="mi" id="themeBtn">Switch light / dark</button>
       <button class="mi hide" id="gDisc">Disconnect Gmail</button>
-      <button class="mi" id="logout">Log out</button>
+      <button class="mi" id="importOld">Bring over an older Deluxe Mail inbox</button>
+      <a class="mi" id="acctLink" href="https://deluxe-main.deluxelordd.workers.dev/" target="_blank" rel="noopener">Your Deluxe account</a>
+      <button class="mi" id="logout">Sign out</button>
     </div>
   </div>
 </header>
 
 <!-- AUTH -->
-<section id="authView">
+<section id="authView" class="hide">
   <div class="card auth">
-    <h1>Get your deluxe address</h1>
-    <p class="sub">Pick a name. Your inbox is ready instantly.</p>
+    <h1>Your deluxe address</h1>
+    <p class="sub">Deluxe Mail uses your Deluxe account. Sign in on Deluxe Main and your inbox is ready: your address is your Deluxe name, like <b>yourname@deluxemail.com</b>.</p>
     <p class="sub" style="font-size:13px">Deluxe Mail addresses work between Deluxe Mail users.</p>
-    <button type="button" id="googleBtn" style="width:100%;padding:12px;margin-top:6px">🇬 Continue with Google (Gmail only)</button>
-    <p class="sub" style="font-size:12px;margin:6px 0 0">No Deluxe account needed. You get a read-only view of your Gmail.</p>
-    <p class="err" id="googleErr" style="margin:6px 0 0"></p>
-    <p class="sub" style="text-align:center;margin:10px 0 0">— or use a Deluxe address —</p>
-    <div class="tabs">
-      <button id="tabSignup" class="active">Create account</button>
-      <button id="tabLogin">Log in</button>
-    </div>
-    <form id="authForm">
-      <div id="displayWrap">
-        <label>Your name</label>
-        <input id="displayName" placeholder="e.g. Alex Carter" maxlength="60">
-      </div>
-      <label>Choose your address</label>
-      <div class="addr">
-        <input id="username" placeholder="yourname" maxlength="30" autocomplete="username" autocapitalize="none" required>
-        <div class="dom">@deluxemail.com</div>
-      </div>
-      <label>Password</label>
-      <input id="password" type="password" placeholder="At least 8 characters" autocomplete="current-password" required>
-      <p class="err" id="authErr"></p>
-      <button class="primary" style="width:100%;margin-top:8px;padding:12px" id="authSubmit">Create my Deluxe account</button>
-    </form>
+    <p class="err" id="authErr"></p>
+    <button class="primary" style="width:100%;margin-top:8px;padding:12px" id="authSubmit">Sign in with Deluxe Main</button>
+    <p class="sub" style="font-size:13px;text-align:center;margin-top:12px">No account yet? <a id="mainLink" href="https://deluxe-main.deluxelordd.workers.dev/" target="_blank" rel="noopener">Create one on Deluxe Main</a></p>
   </div>
 </section>
 
@@ -230,13 +212,16 @@
   </div>
 </div>
 
+<script src="https://deluxe-main.deluxelordd.workers.dev/deluxe.js" data-app="mail"></script>
 <script>
 const $ = (id) => document.getElementById(id);
 const state = { folder: "inbox", msgs: [], filter: "all", q: "", openKey: null };
-let mode = "signup";
-let token = localStorage.getItem("dm_token");
-let address = localStorage.getItem("dm_addr");
-let myName = localStorage.getItem("dm_name") || "";
+// Signed in with Deluxe Main (deluxe.js keeps the key).
+const D = window.Deluxe;
+let token = D ? D.token() : null;
+let address = null;
+let myName = "";
+["dm_token", "dm_addr", "dm_name", "dm_google"].forEach((k) => { try { localStorage.removeItem(k); } catch (e) {} });
 
 /* ---------- helpers ---------- */
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -273,57 +258,38 @@ const drawer = (open) => { $("nav").classList.toggle("open", open); $("scrim").c
 $("menuBtn").onclick = () => drawer(true);
 $("scrim").onclick = () => drawer(false);
 
-/* ---------- auth ---------- */
-function setMode(m) {
-  mode = m;
-  $("tabSignup").classList.toggle("active", m === "signup");
-  $("tabLogin").classList.toggle("active", m === "login");
-  $("displayWrap").classList.toggle("hide", m === "login");
-  $("authSubmit").textContent = m === "signup" ? "Create my Deluxe account" : "Log in";
-  $("authErr").textContent = "";
-}
-$("tabSignup").onclick = () => setMode("signup");
-$("tabLogin").onclick = () => setMode("login");
-
-$("authForm").onsubmit = async (e) => {
-  e.preventDefault();
-  $("authErr").textContent = "";
-  const username = $("username").value.trim().toLowerCase();
-  const password = $("password").value;
-  try {
-    if (mode === "signup") {
-      await api("signup", { method: "POST", body: JSON.stringify({ username, password, displayName: $("displayName").value }) });
-    }
-    const s = await api("login", { method: "POST", body: JSON.stringify({ username, password }) });
-    token = s.token; address = s.address; myName = s.displayName || username;
-    localStorage.setItem("dm_token", token); localStorage.setItem("dm_addr", address); localStorage.setItem("dm_name", myName);
-    enterMail();
-  } catch (err) {
-    $("authErr").textContent = err.message + (mode === "login" && /Wrong/.test(err.message) ? " New here? Tap “Create account” first." : "");
-  }
+/* ---------- auth: Deluxe Main ---------- */
+$("authSubmit").onclick = () => {
+  if (!D) { $("authErr").textContent = "Deluxe Main could not be reached. Check your connection and reload."; return; }
+  $("authSubmit").disabled = true; $("authSubmit").textContent = "Opening Deluxe Main…";
+  D.signIn();
 };
+if (D) { $("mainLink").href = D.main + "/"; $("acctLink").href = D.main + "/"; }
 
-$("googleBtn").onclick = async () => {
-  $("googleErr").textContent = "";
-  try { const { url } = await api("google/start", { method: "POST" }); location.href = url; }
-  catch (e) { $("googleErr").textContent = e.message; }
-};
-
-const isG = () => localStorage.getItem("dm_google") === "1";
-function applyGoogleMode() {
-  const g = isG();
-  ["fInbox", "fSent", "composeBtn"].forEach((id) => $(id).classList.toggle("hide", g));
-}
+const isG = () => false;
+function applyGoogleMode() {}
 
 function logout() {
   token = null; address = null;
-  ["dm_token", "dm_addr", "dm_name", "dm_google"].forEach((k) => localStorage.removeItem(k));
-  applyGoogleMode();
+  if (D) D.signOut();
   $("authView").classList.remove("hide");
   ["app", "userDd", "menuBtn"].forEach((id) => $(id).classList.add("hide"));
+  $("authSubmit").disabled = false; $("authSubmit").textContent = "Sign in with Deluxe Main";
   closeReader(); $("compose").classList.remove("open");
 }
 $("logout").onclick = logout;
+
+$("importOld").onclick = async () => {
+  const username = prompt("Your old Deluxe Mail name (the part before @deluxemail.com):");
+  if (!username) return;
+  const password = prompt("The password of that old Deluxe Mail account:");
+  if (!password) return;
+  try {
+    const r = await api("import", { method: "POST", body: JSON.stringify({ username, password }) });
+    alert(r.moved ? `Moved ${r.moved} messages into your Deluxe account.` : "That account had no messages. It has been closed.");
+    load();
+  } catch (e) { alert(e.message); }
+};
 
 /* ---------- mail ---------- */
 function enterMail() {
@@ -501,20 +467,25 @@ $("sendBtn").onclick = async () => {
 /* quiet auto-refresh */
 setInterval(() => { if (token && !$("app").classList.contains("hide") && !document.hidden) load(true); }, 30000);
 
-const hp = new URLSearchParams(location.hash.slice(1));
-if (hp.get("gtoken")) {
-  token = hp.get("gtoken"); address = hp.get("gaddr"); myName = hp.get("gname") || address;
-  localStorage.setItem("dm_token", token); localStorage.setItem("dm_addr", address);
-  localStorage.setItem("dm_name", myName); localStorage.setItem("dm_google", "1");
-  history.replaceState(null, "", location.pathname);
-}
 const gres = new URLSearchParams(location.search).get("gmail");
 if (gres) history.replaceState(null, "", location.pathname);
-if (token && address) {
+async function start() {
+  const user = D ? await D.ready : null;
+  token = D ? D.token() : null;
+  if (!user || !token) { $("authView").classList.remove("hide"); return; }
+  try {
+    const me = await api("me");
+    address = me.address; myName = me.displayName || user.name;
+  } catch (e) {
+    $("authView").classList.remove("hide");
+    $("authErr").textContent = e.message;
+    return;
+  }
   enterMail();
   if (gres === "connected") setFolder("gmail");
   else if (gres === "error") alert("Gmail connection failed. Please try again.");
 }
+start();
 </script>
 </body>
 </html>
