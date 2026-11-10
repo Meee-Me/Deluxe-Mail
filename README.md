@@ -20,11 +20,11 @@ made on Deluxe Main, and your address is your Deluxe handle (shown on Deluxe Mai
 
 ## Setup
 
-1. On the Deluxe server (the `deluxe-drive` Cloudflare Worker, which runs Deluxe Main): add this site's
-   address (`https://deluxe-mail.vercel.app` is already allowed), and set a secret
-   `APP_KEY_MAIL` (Workers & Pages, deluxe-drive, Settings, Variables and Secrets; any long random text).
+1. Deluxe Main recognises Mail's key by its SHA-256 fingerprint, written in Deluxe Main's
+   `worker/apps.js` (`keyHash` of `mail`). Nothing has to be set on Cloudflare. A new key means
+   putting its new fingerprint there.
 2. On Vercel (or Netlify), set environment variables:
-   - `MAIN_APP_KEY`: the same text as `APP_KEY_MAIL` (secret)
+   - `MAIN_APP_KEY`: the key (mark it sensitive; tick Production), then redeploy
    - `MAIN_URL`: only if the Deluxe data server is not at `https://deluxe-drive.deluxelordd.workers.dev/main`
    - optional: `RESEND_API_KEY` (sending outside), `INBOUND_SECRET` (receiving),
      `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `TOKEN_ENC_KEY`, `GOOGLE_REDIRECT_URI` (read-only Gmail)
