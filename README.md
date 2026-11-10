@@ -21,7 +21,7 @@ made on Deluxe Main, and your address is your Deluxe handle (shown on Deluxe Mai
 ## Setup
 
 1. On the Deluxe server (the `deluxe-drive` Cloudflare Worker, which runs Deluxe Main): add this site's
-   address to `APP_ORIGINS`, e.g. `{"mail": ["https://deluxe-mail.vercel.app"]}`, and set a secret
+   address (`https://deluxe-mail.vercel.app` is already allowed), and set a secret
    `APP_KEY_MAIL` (Workers & Pages, deluxe-drive, Settings, Variables and Secrets; any long random text).
 2. On Vercel (or Netlify), set environment variables:
    - `MAIN_APP_KEY`: the same text as `APP_KEY_MAIL` (secret)
