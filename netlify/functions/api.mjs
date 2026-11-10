@@ -1,4 +1,3 @@
-import { getStore } from "@netlify/blobs";
 import crypto from "node:crypto";
 
 // Deluxe Mail's server.
@@ -9,8 +8,12 @@ import crypto from "node:crypto";
 // (shown on Deluxe Main), e.g. shivad.sujith@deluxemail.com.
 //
 // Mail (and the Gmail connection) is saved in Deluxe Main, under the "mail"
-// website, using this site's key for Deluxe Main (MAIN_APP_KEY). Only short-lived
-// Google sign-in state stays in Netlify Blobs.
+// website, using this site's key for Deluxe Main (MAIN_APP_KEY). Nothing is
+// kept by the host, so the same code runs on Netlify (netlify/functions) and
+// on Vercel (api/[...path].js).
+//
+// Folders: inbox, sent, drafts and trash (keys "<folder>/<newest-first id>");
+// "starred" lists starred mail from inbox and sent.
 //
 // Environment: MAIN_URL (default below), MAIN_APP_KEY (the same value as
 // APP_KEY_MAIL on Deluxe Main), and optionally RESEND_API_KEY, INBOUND_SECRET,
@@ -19,14 +22,13 @@ import crypto from "node:crypto";
 export const config = { path: "/api/*" };
 
 const DOMAIN = "deluxemail.com";
-const MAIN = String(process.env.MAIN_URL || "https://deluxe-main.deluxelordd.workers.dev").replace(/\/+$/, "");
+const MAIN = String(process.env.MAIN_URL || "https://deluxe-drive.deluxelordd.workers.dev/main").replace(/\/+$/, "");
 const json = (data, status = 200) =>
   new Response(JSON.stringify(data), {
     status,
     headers: { "Content-Type": "application/json" },
   });
 
-const oauthStore = () => getStore("oauth");
 const clean = (s, max) => String(s ?? "").slice(0, max);
 
 /* ---------- Deluxe Main ---------- */
@@ -100,13 +102,15 @@ function mainData(accountId) {
 }
 
 const addressOf = (user) => `${user.handle}@${DOMAIN}`;
+const FOLDERS = ["inbox", "sent", "drafts", "trash"];
+const KEY = /^(inbox|sent|drafts|trash)\/[0-9]{13}-[0-9A-Za-z-]{1,64}$/;
+const newKey = (folder) => `${folder}/${String(9999999999999 - Date.now()).padStart(13, "0")}-${crypto.randomUUID()}`;
+const summary = ({ body, ...rest }) => ({ ...rest, preview: String(body || "").slice(0, 90) });
 
 async function deliver(account, folder, msg) {
-  const id = crypto.randomUUID();
-  // reverse timestamp so newest sorts first
-  const rev = String(9999999999999 - Date.now()).padStart(13, "0");
-  const key = `${folder}/${rev}-${id}`;
-  await mainData(account.id).set(key, { id, key, folder, date: Date.now(), read: folder === "sent", ...msg });
+  const key = newKey(folder);
+  const id = key.split("-").slice(1).join("-");
+  await mainData(account.id).set(key, { id, key, folder, date: Date.now(), read: folder !== "inbox", starred: false, ...msg });
   return key;
 }
 
@@ -228,9 +232,14 @@ export default async (req) => {
       const st = url.searchParams.get("state"), code = url.searchParams.get("code");
       const back = (r) => new Response(null, { status: 302, headers: { Location: "/?gmail=" + r } });
       if (!gConfigured() || !st || !code) return back("error");
-      const rec = await oauthStore().get(st, { type: "json" });
-      if (rec) await oauthStore().delete(st);
-      if (!rec || rec.expires < Date.now() || !rec.accountId) return back("error");
+      // state is "<account id>.<random>"; the random part is saved in that account.
+      const [accountId, nonce] = st.split(".");
+      if (!/^[A-Za-z0-9_-]{1,120}$/.test(accountId || "") || !/^[0-9a-f]{48}$/.test(nonce || "")) return back("error");
+      const pending = mainData(accountId);
+      const rec = await pending.get("oauth:" + nonce);
+      if (rec) await pending.del("oauth:" + nonce);
+      if (!rec || rec.expires < Date.now()) return back("error");
+      rec.accountId = accountId;
       const tr = await fetch("https://oauth2.googleapis.com/token", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -271,30 +280,84 @@ export default async (req) => {
     }
 
     if (route === "list" && method === "GET") {
-      const folder = url.searchParams.get("folder") === "sent" ? "sent" : "inbox";
+      const folder = url.searchParams.get("folder") || "inbox";
+      if (folder === "starred") {
+        const both = [...(await store.list("inbox/", { limit: 300 })), ...(await store.list("sent/", { limit: 300 }))];
+        const starred = both.map((x) => x.value).filter((m) => m && m.starred).sort((x, y) => y.date - x.date);
+        return json({ messages: starred.slice(0, 100).map(summary) });
+      }
+      if (!FOLDERS.includes(folder)) return json({ error: "No such folder." }, 400);
       const items = await store.list(`${folder}/`, { limit: 100 });
-      return json({
-        messages: items
-          .map((x) => x.value)
-          .filter(Boolean)
-          .map(({ body, ...rest }) => ({ ...rest, preview: String(body || "").slice(0, 90) })),
-      });
+      const unread = folder === "inbox" ? items.filter((x) => x.value && !x.value.read).length : undefined;
+      return json({ messages: items.map((x) => x.value).filter(Boolean).map(summary), unread });
     }
 
     if (route === "message" && method === "GET") {
       const key = url.searchParams.get("key") || "";
-      if (!/^(inbox|sent)\/[0-9a-f-]+$/i.test(key)) return json({ error: "Not found" }, 404);
+      if (!KEY.test(key)) return json({ error: "Not found" }, 404);
       const msg = await store.get(key);
       if (!msg) return json({ error: "Not found" }, 404);
       if (!msg.read) await store.set(key, { ...msg, read: true });
-      return json(msg);
+      return json({ ...msg, read: true });
     }
 
+    // Star / unstar, read / unread.
+    if (route === "update" && method === "POST") {
+      const b = await req.json();
+      if (!KEY.test(String(b.key))) return json({ error: "Not found" }, 404);
+      const msg = await store.get(b.key);
+      if (!msg) return json({ error: "Not found" }, 404);
+      const next = { ...msg };
+      if (typeof b.starred === "boolean") next.starred = b.starred;
+      if (typeof b.read === "boolean") next.read = b.read;
+      await store.set(b.key, next);
+      return json({ ok: true, message: summary(next) });
+    }
+
+    // Delete moves mail to Trash; deleting from Trash (or a draft) is for good.
     if (route === "delete" && method === "POST") {
       const { key } = await req.json();
-      if (!/^(inbox|sent)\/[0-9a-f-]+$/i.test(String(key))) return json({ error: "Not found" }, 404);
+      if (!KEY.test(String(key))) return json({ error: "Not found" }, 404);
+      const msg = await store.get(key);
+      if (!msg) return json({ ok: true });
       await store.del(key);
+      if (!/^(trash|drafts)\//.test(key)) {
+        const to = newKey("trash");
+        await store.set(to, { ...msg, key: to, folder: "trash", fromFolder: msg.folder || key.split("/")[0], trashedAt: Date.now() });
+        return json({ ok: true, movedTo: to });
+      }
       return json({ ok: true });
+    }
+
+    if (route === "restore" && method === "POST") {
+      const { key } = await req.json();
+      if (!/^trash\//.test(String(key)) || !KEY.test(String(key))) return json({ error: "Not found" }, 404);
+      const msg = await store.get(key);
+      if (!msg) return json({ error: "Not found" }, 404);
+      const folder = ["inbox", "sent"].includes(msg.fromFolder) ? msg.fromFolder : "inbox";
+      const to = `${folder}/${key.slice("trash/".length)}`;
+      const { fromFolder, trashedAt, ...rest } = msg;
+      await store.set(to, { ...rest, key: to, folder });
+      await store.del(key);
+      return json({ ok: true, key: to });
+    }
+
+    if (route === "empty-trash" && method === "POST") {
+      const items = await store.list("trash/", { limit: 1000 });
+      for (const x of items) await store.del(x.key);
+      return json({ ok: true, deleted: items.length });
+    }
+
+    // Drafts are saved while writing; a draft key may be passed to update it.
+    if (route === "draft" && method === "POST") {
+      const b = await req.json();
+      const key = KEY.test(String(b.key || "")) && String(b.key).startsWith("drafts/") ? b.key : newKey("drafts");
+      const draft = {
+        id: key.split("-").slice(1).join("-"), key, folder: "drafts", read: true, date: Date.now(),
+        from: addressOf(me), to: clean(b.to, 200), subject: clean(b.subject, 300), body: clean(b.body, 50000),
+      };
+      await store.set(key, draft);
+      return json({ ok: true, key });
     }
 
     if (route === "send" && method === "POST") {
@@ -314,6 +377,7 @@ export default async (req) => {
         if (!r.ok) return json({ error: r.error }, 501);
       }
       await deliver(me, "sent", { from, to, subject, body: text });
+      if (b.draftKey && /^drafts\//.test(String(b.draftKey)) && KEY.test(String(b.draftKey))) await store.del(b.draftKey);
       return json({ ok: true });
     }
 
@@ -321,6 +385,13 @@ export default async (req) => {
     if (route === "import" && method === "POST") {
       const b = await req.json();
       const oldName = clean(b.username, 60).toLowerCase().trim().replace(`@${DOMAIN}`, "");
+      // Old accounts lived in Netlify Blobs, so this only works on Netlify.
+      let getStore;
+      try {
+        ({ getStore } = await import("@netlify/blobs"));
+      } catch (e) {
+        return json({ error: "Older Deluxe Mail inboxes can only be brought over on the Netlify copy of Deluxe Mail." }, 501);
+      }
       const users = getStore("users");
       const old = oldName ? await users.get(oldName, { type: "json" }) : null;
       if (!old || old.google || !old.hash || !checkOldPassword(clean(b.password, 200), old))
@@ -347,9 +418,10 @@ export default async (req) => {
     }
     if (route === "gmail/start" && method === "POST") {
       if (!gConfigured()) return json({ error: "Gmail isn't set up on this site yet." }, 501);
-      const st = crypto.randomBytes(24).toString("hex");
+      const nonce = crypto.randomBytes(24).toString("hex");
+      const st = `${me.id}.${nonce}`;
       const redirect = process.env.GOOGLE_REDIRECT_URI || `${url.origin}/api/gmail/callback`;
-      await oauthStore().setJSON(st, { accountId: me.id, redirect, expires: Date.now() + 10 * 60 * 1000 });
+      await store.set("oauth:" + nonce, { redirect, expires: Date.now() + 10 * 60 * 1000 });
       const q = new URLSearchParams({
         client_id: process.env.GOOGLE_CLIENT_ID,
         redirect_uri: redirect,
