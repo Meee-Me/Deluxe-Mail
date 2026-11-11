@@ -613,7 +613,20 @@ setInterval(() => { if (token && !guest && !$("app").classList.contains("hide") 
 
 const gres = new URLSearchParams(location.search).get("gmail");
 if (gres) history.replaceState(null, "", location.pathname);
+// The mail domain can be changed on the server (MAIL_DOMAIN); show the real one.
+async function showDomain() {
+  try {
+    const r = await fetch("/api/config");
+    const { domain } = await r.json();
+    if (!domain || domain === "deluxemail.com") return;
+    const swap = (t) => String(t).split("deluxemail.com").join(domain);
+    for (const el of [$("authView"), $("guestBar")]) el.innerHTML = swap(el.innerHTML);
+    $("to").placeholder = swap($("to").placeholder);
+    window.MAIL_DOMAIN = domain;
+  } catch (e) { /* keep the default text */ }
+}
 async function start() {
+  await showDomain();
   const user = D ? await D.ready : null;
   token = D ? D.token() : null;
   if (!user || !token) {

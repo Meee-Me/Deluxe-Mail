@@ -21,7 +21,9 @@ import crypto from "node:crypto";
 
 export const config = { path: "/api/*" };
 
-const DOMAIN = "deluxemail.com";
+// The mail domain. It must be a domain you own, with its MX records pointing
+// at an inbound email service (see README). Change it with MAIL_DOMAIN.
+const DOMAIN = String(process.env.MAIL_DOMAIN || "deluxemail.com").toLowerCase().replace(/^@/, "");
 const MAIN = String(process.env.MAIN_URL || "https://deluxe-drive.deluxelordd.workers.dev/main").replace(/\/+$/, "");
 const json = (data, status = 200) =>
   new Response(JSON.stringify(data), {
@@ -126,6 +128,84 @@ async function sendExternal(from, to, subject, body) {
   return { ok: true };
 }
 
+/* ---------- mail from outside ---------- */
+
+function safeSecret(a, b) {
+  const x = Buffer.from(String(a)), y = Buffer.from(String(b));
+  return x.length === y.length && crypto.timingSafeEqual(x, y);
+}
+
+function htmlToText(html) {
+  return String(html || "")
+    .replace(/<style[\s\S]*?<\/style>/gi, "")
+    .replace(/<script[\s\S]*?<\/script>/gi, "")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(p|div|tr|h[1-6]|li)>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/g, " ").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, "&")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+// Every name@DOMAIN among the recipients, once each.
+function recipientsIn(list) {
+  const found = new Set();
+  const re = new RegExp("([a-z0-9._-]+)@" + DOMAIN.replace(/\./g, "\\.") + "\\b", "gi");
+  for (const item of [].concat(list || [])) {
+    const textOf = typeof item === "string" ? item : item && (item.Email || item.email || item.address || "");
+    for (const m of String(textOf || "").matchAll(re)) found.add(m[1].toLowerCase());
+  }
+  return [...found].slice(0, 20);
+}
+
+const asList = (v) => (Array.isArray(v) ? v : v ? [v] : []);
+
+// The services post in different shapes; this turns each into
+// { from, recipients, subject, text, html }.
+async function readInbound(req) {
+  const type = String(req.headers.get("content-type") || "").toLowerCase();
+  if (type.includes("multipart/form-data") || type.includes("application/x-www-form-urlencoded")) {
+    // Mailgun (sender, recipient, body-plain) and SendGrid Inbound Parse (from, to, text, envelope).
+    const f = await req.formData();
+    const get = (k) => (f.get(k) == null ? "" : String(f.get(k)));
+    let envelope = [];
+    try { envelope = asList(JSON.parse(get("envelope") || "{}").to); } catch (e) { /* not SendGrid */ }
+    return {
+      from: get("from") || get("From") || get("sender"),
+      recipients: [get("recipient"), get("to"), get("To"), get("cc"), get("Cc"), ...envelope],
+      subject: get("subject") || get("Subject"),
+      text: get("stripped-text") || get("body-plain") || get("text"),
+      html: get("body-html") || get("stripped-html") || get("html"),
+    };
+  }
+  let b;
+  try { b = await req.json(); } catch (e) { return null; }
+  if (!b || typeof b !== "object") return null;
+  // Resend: { type: "email.received", data: { email_id, from, to, subject } }; the
+  // body is fetched from Resend with RESEND_API_KEY.
+  if (b.type === "email.received" && b.data) {
+    const d = b.data;
+    let text = d.text || "", html = d.html || "";
+    if (!text && !html && d.email_id && process.env.RESEND_API_KEY) {
+      try {
+        const r = await fetch("https://api.resend.com/emails/receiving/" + encodeURIComponent(d.email_id), {
+          headers: { Authorization: "Bearer " + process.env.RESEND_API_KEY },
+        });
+        if (r.ok) { const full = await r.json(); text = full.text || ""; html = full.html || ""; }
+      } catch (e) { /* keep what we have */ }
+    }
+    return { from: d.from, recipients: [...asList(d.to), ...asList(d.cc)], subject: d.subject, text, html };
+  }
+  // Postmark (From, ToFull, TextBody, HtmlBody, OriginalRecipient) and plain JSON.
+  return {
+    from: b.From || b.from || b.sender,
+    recipients: [b.OriginalRecipient, ...asList(b.ToFull), ...asList(b.CcFull), b.To, b.Cc, b.to, b.cc, b.recipient],
+    subject: b.Subject || b.subject,
+    text: b.TextBody || b["body-plain"] || b.text,
+    html: b.HtmlBody || b.html,
+  };
+}
+
 /* ---------- old Deluxe Mail accounts (before Deluxe Main) ---------- */
 
 function checkOldPassword(pw, { salt, hash }) {
@@ -208,23 +288,38 @@ export default async (req) => {
       return json({ error: "Deluxe Mail uses your Deluxe account. Sign in with Deluxe Main." }, 410);
     }
 
-    // ---------- Inbound mail webhook (Postmark/Mailgun-style JSON) ----------
+    // Public: the mail domain, so the page can show the right addresses.
+    if (route === "config" && method === "GET") {
+      return json({ domain: DOMAIN, inbound: !!process.env.INBOUND_SECRET, outbound: !!process.env.RESEND_API_KEY });
+    }
+
+    // ---------- Mail from outside (Gmail, Outlook, ...) ----------
+    // An inbound email service receives mail for the domain and posts each
+    // message here: /api/inbound?key=INBOUND_SECRET. Resend, Postmark,
+    // Mailgun and SendGrid formats are understood.
     if (route === "inbound" && method === "POST") {
-      if (!process.env.INBOUND_SECRET || url.searchParams.get("key") !== process.env.INBOUND_SECRET)
+      const given = url.searchParams.get("key") || req.headers.get("x-inbound-key") || "";
+      if (!process.env.INBOUND_SECRET || !safeSecret(given, process.env.INBOUND_SECRET))
         return json({ error: "Forbidden" }, 403);
-      const b = await req.json();
-      const toRaw = clean(b.OriginalRecipient || b.To || b.to || b.recipient, 300).toLowerCase();
-      const m = toRaw.match(/([a-z0-9._-]+)@deluxemail\.com/);
-      if (!m) return json({ error: "No deluxemail recipient" }, 200);
-      const rcpt = await findAccount(m[1]);
-      if (!rcpt) return json({ error: "Unknown user" }, 200);
-      await deliver(rcpt, "inbox", {
-        from: clean(b.From || b.from || b.sender, 300),
-        to: addressOf(rcpt),
-        subject: clean(b.Subject || b.subject || "(no subject)", 300),
-        body: clean(b.TextBody || b["body-plain"] || b.text || "", 50000),
-      });
-      return json({ ok: true });
+      const mail = await readInbound(req);
+      if (!mail) return json({ error: "That message could not be read." }, 400);
+      const handles = recipientsIn(mail.recipients);
+      if (!handles.length) return json({ ok: true, delivered: 0, note: `No @${DOMAIN} recipient` });
+      let delivered = 0;
+      for (const handle of handles) {
+        const rcpt = await findAccount(handle);
+        if (!rcpt) continue;
+        await deliver(rcpt, "inbox", {
+          from: clean(mail.from, 300) || "(unknown sender)",
+          to: addressOf(rcpt),
+          subject: clean(mail.subject || "(no subject)", 300),
+          body: clean(mail.text || htmlToText(mail.html) || "", 50000),
+          external: true,
+        });
+        delivered += 1;
+      }
+      // 200 even when nobody matched, so the service does not keep retrying.
+      return json({ ok: true, delivered });
     }
 
     // ---------- Gmail OAuth callback (browser redirect from Google, no login header) ----------

@@ -30,6 +30,29 @@ made on Deluxe Main, and your address is your Deluxe handle (shown on Deluxe Mai
      `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `TOKEN_ENC_KEY`, `GOOGLE_REDIRECT_URI` (read-only Gmail)
 3. Deploy. Vercel: import the repository, no build command. Netlify: publish `.`, functions `netlify/functions`.
 
+## Mail from Gmail and everywhere else
+
+Deluxe Mail users can always write to each other. For mail from **outside** (Gmail, Outlook, …) to
+reach `name@deluxemail.com`, and for sending **to** outside addresses:
+
+1. **Own the domain.** Mail for `deluxemail.com` goes wherever its owner's DNS says. If you don't own
+   it, buy a domain (any registrar) and set `MAIL_DOMAIN` on Vercel to it (for example
+   `deluxemail.app`); addresses become `name@<that domain>`.
+2. **Receive with an inbound email service.** Any of these works; Resend is the easiest because it
+   also sends:
+   - **Resend** (resend.com): add the domain, turn on **Receiving**, add the MX record it shows at your
+     registrar, and add a webhook for `email.received` pointing to
+     `https://deluxe-mail.vercel.app/api/inbound?key=<INBOUND_SECRET>`.
+   - **Postmark** (inbound stream), **Mailgun** (a route that forwards to the URL), or **SendGrid**
+     (Inbound Parse): point them at the same URL.
+3. **On Vercel** (deluxe-mail, Settings, Environment Variables), then Redeploy:
+   - `INBOUND_SECRET`: any long random text, the same as in the webhook URL
+   - `RESEND_API_KEY`: from Resend, for sending to outside addresses (and reading Resend message bodies)
+   - `MAIL_DOMAIN`: only if the domain is not `deluxemail.com`
+
+Mail to a name nobody has is dropped quietly (the service is told it arrived, so it does not retry).
+Attachments are not kept yet.
+
 ## Older Deluxe Mail accounts
 
 Accounts made here before Deluxe Main are closed for sign-in. After signing in with Deluxe Main, the
