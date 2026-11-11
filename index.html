@@ -160,6 +160,8 @@
       <div class="who" id="meAddr"></div>
       <button class="mi" id="themeBtn">Switch light / dark</button>
       <button class="mi hide" id="gDisc">Disconnect Gmail</button>
+      <button class="mi" id="deviceCode">Sign in on another device</button>
+      <button class="mi" id="useCode">Use a code from another device</button>
       <button class="mi" id="importOld">Bring over an older Deluxe Mail inbox</button>
       <a class="mi" id="acctLink" href="https://deluxe-main.vercel.app/" target="_blank" rel="noopener">Your Deluxe account</a>
       <button class="mi" id="logout">Sign out</button>
@@ -175,6 +177,7 @@
     <p class="sub" style="font-size:13px">Deluxe Mail addresses work between Deluxe Mail users.</p>
     <p class="err" id="authErr"></p>
     <button class="primary" style="width:100%;margin-top:8px;padding:12px" id="authSubmit">Sign in with Deluxe Main</button>
+    <button style="width:100%;margin-top:10px;padding:12px" id="codeBtn">Use a code from another device</button>
     <button style="width:100%;margin-top:10px;padding:12px" id="guestBtn">Continue as guest</button>
     <p class="sub" style="font-size:13px;text-align:center;margin-top:12px">No account yet? <a id="mainLink" href="https://deluxe-main.vercel.app/" target="_blank" rel="noopener">Create one on Deluxe Main</a></p>
   </div>
@@ -594,7 +597,7 @@ function enterGuest() {
   address = "Guest"; myName = "Guest";
   enterMail();
   $("guestBar").classList.remove("hide");
-  ["fGmail", "importOld", "acctLink"].forEach((id) => $(id).classList.add("hide"));
+  ["fGmail", "importOld", "acctLink", "deviceCode"].forEach((id) => $(id).classList.add("hide"));
   $("logout").textContent = "Leave guest mode";
 }
 // Signing in moves guest drafts into the account.
@@ -606,6 +609,12 @@ async function moveGuestDrafts() {
   if (drafts.length) toast(`Moved ${drafts.length} guest draft${drafts.length === 1 ? "" : "s"} into your account`);
 }
 $("guestBtn").onclick = enterGuest;
+// 60-second codes (Deluxe Main's window from deluxe.js).
+const codeWindow = (mode) => { if (D && D.codeDialog) D.codeDialog(mode); else alert("Deluxe Main could not be reached."); };
+$("codeBtn").onclick = () => codeWindow("enter");
+$("useCode").onclick = () => codeWindow("enter");
+$("deviceCode").onclick = () => codeWindow("show");
+if (D) D.onChange((user) => { if (user && (guest || !address)) location.reload(); });
 $("guestSignIn").onclick = () => { if (D) D.signIn(); };
 
 /* quiet auto-refresh */
@@ -642,6 +651,7 @@ async function start() {
     return;
   }
   enterMail();
+  $("useCode").classList.add("hide");
   moveGuestDrafts();
   if (gres === "connected") setFolder("gmail");
   else if (gres === "error") alert("Gmail connection failed. Please try again.");
