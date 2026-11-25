@@ -237,6 +237,10 @@
   </div>
 </div>
 
+<script>
+// shortcut: if deluxe.js is still loading after 6s, show the sign-in card instead of a blank page (the main script below waits for it)
+setTimeout(function () { if (!window.Deluxe) document.getElementById("authView").classList.remove("hide"); }, 6000);
+</script>
 <script src="https://deluxe-main.vercel.app/deluxe.js" data-app="mail"></script>
 <script>
 const $ = (id) => document.getElementById(id);
