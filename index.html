@@ -643,8 +643,10 @@ async function showDomain() {
   } catch (e) { /* keep the default text */ }
 }
 async function start() {
-  await showDomain();
-  const user = D ? await D.ready : null;
+  const wait = (p, ms) => Promise.race([p, new Promise((r) => setTimeout(() => r(null), ms))]);
+  await wait(showDomain(), 4000);
+  // shortcut: a slow or broken Deluxe Main shows the sign-in card after 6s instead of a blank page
+  const user = D ? await wait(Promise.resolve(D.ready).catch(() => null), 6000) : null;
   token = D ? D.token() : null;
   if (!user || !token) {
     if (D && D.isGuest()) { enterGuest(); return; }
@@ -664,7 +666,7 @@ async function start() {
   if (gres === "connected") setFolder("gmail");
   else if (gres === "error") alert("Gmail connection failed. Please try again.");
 }
-start();
+start().catch((e) => { $("authView").classList.remove("hide"); $("authErr").textContent = e.message; });
 </script>
 </body>
 </html>
