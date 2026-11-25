@@ -624,7 +624,7 @@ const codeWindow = (mode) => { if (D && D.codeDialog) D.codeDialog(mode); else a
 $("codeBtn").onclick = () => codeWindow("enter");
 $("useCode").onclick = () => codeWindow("enter");
 $("deviceCode").onclick = () => codeWindow("show");
-if (D) D.onChange((user) => { if (user && (guest || !address)) location.reload(); });
+if (D) D.onChange((user) => { if (user && !token && (guest || !address)) location.reload(); });
 $("guestSignIn").onclick = () => { if (D) D.signIn(); };
 
 /* quiet auto-refresh */
